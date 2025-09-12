@@ -3,5 +3,5 @@
   "website_column": "Web Address",
   "default_error_reason": "because of breadth of services you offer and the amount of time you've been trading",
   "max_pages_to_crawl": 15,
-  "sentence": "Your company, {{ company_name }}, stood out to me {{ generated_text }}."
+  "sentence": "Your company stood out to me {{ generated_text }}."
 }
