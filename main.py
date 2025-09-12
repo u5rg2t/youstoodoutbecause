@@ -1,18 +1,25 @@
-# Business Outreach Automation Script (Advanced Crawler & Analyser)
+# Business Outreach Automation Script
 #
-# This script reads an Excel file, crawls each company's website (up to 15 pages),
-# uses the Gemini AI for a multi-criteria website evaluation, generates a
-# deeply informed reason for outreach, and creates a personalized email.
+# This script automates the process of business outreach by:
+# 1. Reading a list of companies from an Excel file.
+# 2. Asynchronously crawling each company's website to gather text content.
+# 3. Leveraging the Gemini AI to perform a qualitative analysis of the website.
+# 4. Generating a unique, context-aware reason for outreach based on the analysis.
+# 5. Updating the original Excel file with the analysis scores and generated reason.
+# 6. Generating a log file with a summary of the script's execution.
 #
-# Author: Scott Murray (with assistance from Gemini)
+# Author: Scott Murray
 #
-# How to Use:
-# 1. Save this script as 'outreach_script.py'.
-# 2. Ensure 'requirements.txt' is in the same directory.
-# 3. Install/update libraries: pip install -r requirements.txt
-# 4. Get a Gemini API key: https://aistudio.google.com/app/apikey
-# 5. Run the script: python outreach_script.py
-# 6. Follow prompts. Results are saved to 'outreach_results.csv'.
+# --- How to Use ---
+# 1.  **Configuration**: Create and configure `config.json` with necessary parameters
+#     (e.g., column names, AI model settings).
+# 2.  **Input File**: Place the target Excel file (containing company names and websites)
+#     in the `xls` directory.
+# 3.  **API Key**: Set your Gemini API key in a `.env` file as `GEMINI_API_KEY`.
+# 4.  **Dependencies**: Install required libraries using `pip install -r requirements.txt`.
+# 5.  **Execution**: Run the script from your terminal using `python main.py`.
+# 6.  **Results**: The script updates the Excel file in place with the new data.
+#     A detailed log is saved in the `logs` directory.
 
 import pandas as pd
 import requests
@@ -28,16 +35,30 @@ import aiohttp
 from collections import deque
 from dotenv import load_dotenv
 
-# --- Configuration ---
-# The EMAIL_TEMPLATE has been removed as it's no longer needed.
+# --- Global Configuration ---
+# The GEMINI_MODEL_NAME specifies the model to be used for AI-driven analysis.
+# This can be updated to any compatible model offered by the Gemini API.
 
 GEMINI_MODEL_NAME = 'gemini-2.5-pro'
 
 # --- Core Functions ---
 
-async def crawl_website(session, base_url):
+async def crawl_website(session: aiohttp.ClientSession, base_url: str) -> tuple[str, int]:
     """
-    Asynchronously crawls a website starting from the base_url, collecting text from internal pages.
+    Asynchronously crawls a website to extract text content from its internal pages.
+
+    This function starts at the provided base URL and systematically navigates through
+    internal links, collecting text while avoiding external sites, duplicates, and non-HTML content.
+    It respects server load by including a small delay between requests.
+
+    Args:
+        session: An active aiohttp.ClientSession for making HTTP requests.
+        base_url: The starting URL for the crawl.
+
+    Returns:
+        A tuple containing:
+        - The aggregated text content from all crawled pages (truncated to 50,000 chars).
+        - The total number of unique pages visited.
     """
     if not base_url.startswith(('http://', 'https://')):
         base_url = 'https://' + base_url
@@ -91,9 +112,21 @@ async def crawl_website(session, base_url):
     print(f"    - Crawl finished. Visited {len(visited_urls)} pages.")
     return full_text[:50000], len(visited_urls)
 
-async def get_website_evaluation(company_name, website_text):
+async def get_website_evaluation(company_name: str, website_text: str) -> dict:
     """
-    Uses Gemini API to evaluate the website based on several criteria.
+    Evaluates website content using the Gemini AI for qualitative analysis.
+
+    This function sends the website's text content to the Gemini API and asks it to
+    score the site on clarity, professionalism, and credibility. The AI is instructed
+    to return a clean JSON object, which this function parses and returns.
+
+    Args:
+        company_name: The name of the company being analyzed.
+        website_text: The aggregated text content from the company's website.
+
+    Returns:
+        A dictionary containing the evaluation scores (clarity, professionalism,
+        credibility) or an error message if the analysis failed.
     """
     if not website_text:
         return {"error": "No text to analyse."}
@@ -123,10 +156,22 @@ async def get_website_evaluation(company_name, website_text):
         print(f"    - Gemini API Error (Evaluation): {e}")
         return {"clarity": 0, "professionalism": 0, "credibility": 0, "error": str(e)}
 
-async def get_reason_to_be_impressed(company_name, website_text):
+async def get_reason_to_be_impressed(company_name: str, website_text: str) -> str:
     """
-    Uses the Gemini API to analyze full website text and generate a reason
-    for being impressed with the company.
+    Generates a personalized and compelling reason for outreach using the Gemini AI.
+
+    This function provides the AI with the website text and a specific system prompt
+    to act as an M&A analyst. It crafts a unique phrase that completes a pre-defined
+    sentence, focusing on the company's strengths like market niche, legacy, or quality.
+    The output is carefully cleaned to ensure it fits grammatically into the outreach email.
+
+    Args:
+        company_name: The name of the company.
+        website_text: The aggregated text content from the company's website.
+
+    Returns:
+        A concise, AI-generated phrase to be used as the reason for outreach,
+        or a default error message if generation fails.
     """
     if not website_text:
         return config["default_error_reason"]
@@ -181,9 +226,23 @@ async def get_reason_to_be_impressed(company_name, website_text):
         print(f"    - Gemini API Error (Reason): {e}")
         return config["default_error_reason"]
 
-async def process_row(session, row_data):
+async def process_row(session: aiohttp.ClientSession, row_data: tuple) -> dict | None:
     """
-    Asynchronously processes a single row from the DataFrame.
+    Orchestrates the end-to-end processing for a single company row from the input file.
+
+    This function handles the entire workflow for one company:
+    1. Skips processing if essential data (name, URL) is missing or if already processed.
+    2. Calls `crawl_website` to fetch website content.
+    3. Concurrently calls `get_website_evaluation` and `get_reason_to_be_impressed`.
+    4. Compiles all results into a dictionary for updating the main DataFrame.
+
+    Args:
+        session: The active aiohttp.ClientSession.
+        row_data: A tuple containing the row's index, data, column names, and total row count.
+
+    Returns:
+        A dictionary with all the generated data (scores, reason, status) for the row,
+        or None if the row was skipped.
     """
     index, row, name_col, web_col, total_rows = row_data
     company_name = str(row[name_col])
@@ -237,10 +296,23 @@ async def process_row(session, row_data):
         'error_reason': error_reason
     }
 
-async def process_file(file_path, name_col, web_col, api_key):
+async def process_file(file_path: str, name_col: str, web_col: str, api_key: str) -> dict:
     """
-    Main processing function to orchestrate reading the file,
-    analyzing data asynchronously, and updating the file.
+    Main controller function to manage the entire file processing workflow.
+
+    This function reads the specified Excel file, sets up the asynchronous processing
+    tasks for each row, executes them, and then updates the DataFrame with the results.
+    Finally, it saves the updated DataFrame back to the original Excel file.
+
+    Args:
+        file_path: The full path to the Excel file to be processed.
+        name_col: The column name for the company's name.
+        web_col: The column name for the company's website URL.
+        api_key: The Gemini API key for authentication.
+
+    Returns:
+        A dictionary containing statistics about the completed run, such as the number
+        of processed rows, errors, and pages scanned.
     """
     try:
         engine = 'openpyxl' if file_path.endswith('xlsx') else 'xlrd'
@@ -321,19 +393,37 @@ async def process_file(file_path, name_col, web_col, api_key):
 
 config = {}
 
-def load_config():
+def load_config() -> None:
+    """
+    Loads script settings from the `config.json` file into the global `config` dictionary.
+
+    This function is critical for externalizing configuration, allowing users to change
+    parameters like column names, AI settings, and crawl depth without modifying the script's code.
+    It includes error handling for a missing or malformed JSON file.
+    """
     global config
     try:
         with open('config.json', 'r') as f:
             config = json.load(f)
     except FileNotFoundError:
         print("Error: 'config.json' not found. Please create it.")
-        exit()
+        exit(1)
     except json.JSONDecodeError:
         print("Error: 'config.json' is not a valid JSON file.")
-        exit()
+        exit(1)
 
-def write_log_file(stats, duration):
+def write_log_file(stats: dict, duration: float) -> None:
+    """
+    Generates and saves a detailed log file summarizing the script's execution.
+
+    The log provides a snapshot of the run, including performance metrics and a
+    detailed breakdown of any errors encountered. This is essential for debugging
+    and tracking the script's effectiveness over time.
+
+    Args:
+        stats: A dictionary of statistics collected during the `process_file` execution.
+        duration: The total time in seconds the script took to run.
+    """
     log_content = f"""
 --- Script Execution Summary ---
 Date: {time.strftime("%Y-%m-%d %H:%M:%S")}
@@ -349,63 +439,77 @@ Total Pages Scanned: {stats['total_pages_scanned']}
         log_content += "\n--- Error Details ---\n"
         for error in stats['error_details']:
             log_content += f"- URL: {error['url']}\n  Reason: {error['reason']}\n"
-        
-        # Ensure the logs directory exists
-        log_folder = 'logs'
-        if not os.path.isdir(log_folder):
-            os.makedirs(log_folder)
-            
-        log_file_path = os.path.join(log_folder, 'log.txt')
-        with open(log_file_path, 'w') as f:
-            f.write(log_content)
-        print(f"✅ Summary log has been saved to '{log_file_path}'.")
 
-if __name__ == "__main__":
-    load_dotenv()
+    # Ensure the logs directory exists before writing the file
+    log_folder = 'logs'
+    os.makedirs(log_folder, exist_ok=True)
+
+    log_file_path = os.path.join(log_folder, f"log_{time.strftime('%Y%m%d_%H%M%S')}.txt")
+    with open(log_file_path, 'w') as f:
+        f.write(log_content)
+    print(f"✅ Summary log has been saved to '{log_file_path}'.")
+
+def main():
+    """
+    Main execution block of the script.
+
+    This function initializes the script by loading environment variables and configuration,
+    validating the environment (e.g., checking for the input file), and orchestrating
+    the primary workflow by calling `process_file`. It also handles API key retrieval
+    and measures total execution time.
+    """
+    load_dotenv()  # Load environment variables from .env file
     load_config()
     print("--- Business Outreach Automation Script ---")
     start_time = time.time()
 
+    # Securely retrieve the API key from environment variables or prompt the user
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         try:
             api_key = getpass.getpass("Please enter your Gemini API Key: ")
         except Exception as e:
             print(f"Could not read API key: {e}")
-            exit()
+            exit(1)
 
+    # Validate the input directory and ensure a single Excel file is present
     xls_folder = 'xls'
     if not os.path.isdir(xls_folder):
-        print(f"Error: The '{xls_folder}' directory was not found.")
-        exit()
+        print(f"Error: The '{xls_folder}' directory was not found. Please create it.")
+        exit(1)
 
     excel_files = [f for f in os.listdir(xls_folder) if f.endswith(('.xls', '.xlsx'))]
 
     if len(excel_files) == 0:
         print(f"No Excel files found in the '{xls_folder}' directory.")
-        exit()
+        exit(1)
     elif len(excel_files) > 1:
-        print(f"Multiple Excel files found in the '{xls_folder}' directory. Please ensure there is only one.")
-        exit()
-    
+        print(f"Multiple Excel files found in '{xls_folder}'. Please ensure only one exists.")
+        exit(1)
+
     file_path = os.path.join(xls_folder, excel_files[0])
     print(f"Processing file: {file_path}")
 
+    # Load column names from config, with sensible defaults
     company_name_column = config.get("company_name_column", "Business Name")
     website_column = config.get("website_column", "Web Address")
-    print(f"Using '{company_name_column}' for company names and '{website_column}' for website URLs.")
+    print(f"Using columns: Name='{company_name_column}', Website='{website_column}'")
 
-    # On Windows, the default event loop policy can cause issues with aiohttp.
+    # Set the event loop policy for Windows to avoid common asyncio errors with aiohttp
     if os.name == 'nt':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        
+
+    # Run the main asynchronous processing function
     stats = asyncio.run(process_file(file_path, company_name_column, website_column, api_key))
-    
-    end_time = time.time()
-    duration = end_time - start_time
-    
+
+    # Calculate and display execution time and write the final log file
+    duration = time.time() - start_time
+    print(f"\n--- Script Finished in {duration:.2f} seconds ---")
     if stats:
         write_log_file(stats, duration)
+
+if __name__ == "__main__":
+    main()
 
 
 
