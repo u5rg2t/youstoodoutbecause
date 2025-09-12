@@ -1,0 +1,8 @@
+pandas
+openpyxl
+requests
+beautifulsoup4
+google-generativeai
+aiohttp
+python-dotenv
+urllib3<2.0
