@@ -27,8 +27,8 @@ Follow these steps to set up and run the script.
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-repository-url>
-cd <your-repository-name>
+git clone https://github.com/u5rg2t/youstoodoutbecause.git
+cd youstoodoutbecause
 ```
 
 ### 2. Set Up the Virtual Environment
@@ -76,7 +76,7 @@ This file controls the script's behavior. You can modify it to suit your needs.
   "website_column": "Web Address",
   "default_error_reason": "because I was unable to analyze the website content.",
   "max_pages_to_crawl": 15,
-  "sentence": "Your company, {{ company_name }}, stood out to me {{ generated_text }}"
+  "sentence": "Your company stood out to me {{ generated_text }}"
 }
 ```
 
