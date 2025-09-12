@@ -134,3 +134,7 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
+
+# Log and data folders
+logs/
+xls/
