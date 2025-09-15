@@ -35,6 +35,7 @@ import aiohttp
 from collections import deque
 from dotenv import load_dotenv
 import re
+from typing import Union
 
 # --- Global Configuration ---
 # The GEMINI_MODEL_NAME specifies the model to be used for AI-driven analysis.
@@ -249,7 +250,7 @@ async def get_reason_to_be_impressed(website_text: str) -> str:
         print(f"    - Gemini API Error (Reason): {e}")
         return config["default_error_reason"]
 
-async def process_row(session: aiohttp.ClientSession, row_data: tuple) -> dict | None:
+async def process_row(session: aiohttp.ClientSession, row_data: tuple) -> Union[dict, None]:
     """
     Orchestrates the end-to-end processing for a single company row from the input file.
 
