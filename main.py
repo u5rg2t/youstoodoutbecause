@@ -45,27 +45,38 @@ GEMINI_MODEL_NAME = 'gemini-2.5-pro'
 
 # --- Utility Functions ---
 
-def is_valid_url(url: str) -> bool:
+def get_validated_url(url: str) -> Union[str, None]:
     """
-    Validates if the given string is a well-formed URL.
+    Validates and sanitizes a URL.
+
+    If the URL is missing a scheme, it prepends 'https://'. It then checks
+    if the resulting URL is well-formed.
 
     Args:
-        url: The string to validate.
+        url: The URL string to validate.
 
     Returns:
-        True if the URL is valid, False otherwise.
+        The sanitized, valid URL string, or None if the URL is invalid.
     """
-    if not isinstance(url, str):
-        return False
-    # Regex to check for a valid URL pattern (simplified for this use case)
+    if not isinstance(url, str) or not url.strip():
+        return None
+
+    url = url.strip()
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+
+    # Regex to check for a valid URL pattern
     regex = re.compile(
-        r'^(?:http|ftp)s?://'  # http:// or https://
-        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
-        r'localhost|'  # localhost...
-        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
-        r'(?::\d+)?'  # optional port
+        r'^(?:http|ftp)s?://'
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'
+        r'localhost|'
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
+        r'(?::\d+)?'
         r'(?:/?|[/?]\S+)$', re.IGNORECASE)
-    return re.match(regex, url) is not None
+
+    if re.match(regex, url):
+        return url
+    return None
 
 # --- Core Functions ---
 
@@ -269,14 +280,15 @@ async def process_row(session: aiohttp.ClientSession, row_data: tuple) -> Union[
         or None if the row was skipped.
     """
     index, row, web_col, total_rows = row_data
-    website_url = str(row[web_col])
+    original_url = str(row[web_col])
 
-    print(f"\n[{index + 1}/{total_rows}] Processing: {website_url}")
+    print(f"\n[{index + 1}/{total_rows}] Processing: {original_url}")
 
-    # Validate the URL before proceeding
-    if not is_valid_url(website_url):
-        print(f"    - Skipping row due to invalid or missing URL: {website_url}")
-        return {'status': 'Skipped', 'reason': 'Invalid URL', 'url': website_url}
+    # Validate and sanitize the URL before proceeding
+    website_url = get_validated_url(original_url)
+    if not website_url:
+        print(f"    - Skipping row due to invalid or missing URL: {original_url}")
+        return {'status': 'Skipped', 'reason': 'Invalid URL', 'url': original_url}
     
     # Check if 'generated_reason' exists and is a non-empty string
     reason_value = row.get('generated_reason')
