@@ -34,12 +34,37 @@ import asyncio
 import aiohttp
 from collections import deque
 from dotenv import load_dotenv
+import re
 
 # --- Global Configuration ---
 # The GEMINI_MODEL_NAME specifies the model to be used for AI-driven analysis.
 # This can be updated to any compatible model offered by the Gemini API.
 
 GEMINI_MODEL_NAME = 'gemini-2.5-pro'
+
+# --- Utility Functions ---
+
+def is_valid_url(url: str) -> bool:
+    """
+    Validates if the given string is a well-formed URL.
+
+    Args:
+        url: The string to validate.
+
+    Returns:
+        True if the URL is valid, False otherwise.
+    """
+    if not isinstance(url, str):
+        return False
+    # Regex to check for a valid URL pattern (simplified for this use case)
+    regex = re.compile(
+        r'^(?:http|ftp)s?://'  # http:// or https://
+        r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+(?:[A-Z]{2,6}\.?|[A-Z0-9-]{2,}\.?)|'  # domain...
+        r'localhost|'  # localhost...
+        r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'  # ...or ip
+        r'(?::\d+)?'  # optional port
+        r'(?:/?|[/?]\S+)$', re.IGNORECASE)
+    return re.match(regex, url) is not None
 
 # --- Core Functions ---
 
@@ -112,7 +137,7 @@ async def crawl_website(session: aiohttp.ClientSession, base_url: str) -> tuple[
     print(f"    - Crawl finished. Visited {len(visited_urls)} pages.")
     return full_text[:50000], len(visited_urls)
 
-async def get_website_evaluation(company_name: str, website_text: str) -> dict:
+async def get_website_evaluation(website_text: str) -> dict:
     """
     Evaluates website content using the Gemini AI for qualitative analysis.
 
@@ -121,7 +146,6 @@ async def get_website_evaluation(company_name: str, website_text: str) -> dict:
     to return a clean JSON object, which this function parses and returns.
 
     Args:
-        company_name: The name of the company being analyzed.
         website_text: The aggregated text content from the company's website.
 
     Returns:
@@ -135,7 +159,7 @@ async def get_website_evaluation(company_name: str, website_text: str) -> dict:
         system_instruction = """You are a website quality analyst. Your task is to evaluate a company's website based on the provided text content. Provide a score from 1-10 for each criterion. Return your response ONLY as a valid JSON object with the keys "clarity", "professionalism", and "credibility"."""
         
         prompt = f"""
-        Analyse the text content from the website of "{company_name}". Based on this text, score the site on the following criteria (1=Poor, 10=Excellent):
+        Analyse the text content from the website provided. Based on this text, score the site on the following criteria (1=Poor, 10=Excellent):
         1. Clarity of Value Proposition: How clearly do they explain their products/services and who they are for?
         2. Professionalism & Design Impression: Based on the language and structure, what is the impression of the site's professionalism?
         3. Trust & Credibility: Is there evidence of trust signals like case studies, testimonials, clear history, or specific expertise?
@@ -156,7 +180,7 @@ async def get_website_evaluation(company_name: str, website_text: str) -> dict:
         print(f"    - Gemini API Error (Evaluation): {e}")
         return {"clarity": 0, "professionalism": 0, "credibility": 0, "error": str(e)}
 
-async def get_reason_to_be_impressed(company_name: str, website_text: str) -> str:
+async def get_reason_to_be_impressed(website_text: str) -> str:
     """
     Generates a personalized and compelling reason for outreach using the Gemini AI.
 
@@ -166,7 +190,6 @@ async def get_reason_to_be_impressed(company_name: str, website_text: str) -> st
     The output is carefully cleaned to ensure it fits grammatically into the outreach email.
 
     Args:
-        company_name: The name of the company.
         website_text: The aggregated text content from the company's website.
 
     Returns:
@@ -181,11 +204,11 @@ async def get_reason_to_be_impressed(company_name: str, website_text: str) -> st
 
         # A more direct prompt for the AI
         # Create a dynamic prompt using the sentence template from the config file
-        sentence_template = config.get("sentence", "Your company, {{ company_name }}, stood out to me {{ generated_text }}")
-        prompt_sentence = sentence_template.replace("{{ company_name }}", company_name).replace("{{ generated_text }}", "[THE PHRASE YOU GENERATE]")
+        sentence_template = config.get("sentence", "This website stood out to me {{ generated_text }}")
+        prompt_sentence = sentence_template.replace("{{ generated_text }}", "[THE PHRASE YOU GENERATE]")
 
         prompt = f"""
-        Analyse the text from the website of a company named "{company_name}".
+        Analyse the text from the website provided.
         Your task is to generate a concise, professional phrase that grammatically completes the following sentence:
         "{prompt_sentence}"
 
@@ -212,8 +235,8 @@ async def get_reason_to_be_impressed(company_name: str, website_text: str) -> st
         reason = response.text.strip()
 
         # Robustly strip the template prefix if the AI includes it anyway
-        sentence_template = config.get("sentence", "Your company, {{ company_name }}, stood out to me {{ generated_text }}")
-        template_prefix = sentence_template.split('{{ generated_text }}')[0].replace("{{ company_name }}", company_name).strip()
+        sentence_template = config.get("sentence", "This website stood out to me {{ generated_text }}")
+        template_prefix = sentence_template.split('{{ generated_text }}')[0].strip()
         
         if reason.lower().startswith(template_prefix.lower()):
             reason = reason[len(template_prefix):].strip()
@@ -244,15 +267,15 @@ async def process_row(session: aiohttp.ClientSession, row_data: tuple) -> dict |
         A dictionary with all the generated data (scores, reason, status) for the row,
         or None if the row was skipped.
     """
-    index, row, name_col, web_col, total_rows = row_data
-    company_name = str(row[name_col])
+    index, row, web_col, total_rows = row_data
     website_url = str(row[web_col])
 
-    print(f"\n[{index + 1}/{total_rows}] Processing: {company_name} ({website_url})")
+    print(f"\n[{index + 1}/{total_rows}] Processing: {website_url}")
 
-    if pd.isna(company_name) or pd.isna(website_url) or website_url.lower() in ['nan', '']:
-        print("    - Skipping row due to missing name or website.")
-        return None
+    # Validate the URL before proceeding
+    if not is_valid_url(website_url):
+        print(f"    - Skipping row due to invalid or missing URL: {website_url}")
+        return {'status': 'Skipped', 'reason': 'Invalid URL', 'url': website_url}
     
     # Check if 'generated_reason' exists and is a non-empty string
     reason_value = row.get('generated_reason')
@@ -264,8 +287,8 @@ async def process_row(session: aiohttp.ClientSession, row_data: tuple) -> dict |
     full_site_text, pages_crawled = await crawl_website(session, website_url)
     
     # 2. Get website evaluation and reason concurrently
-    evaluation_task = get_website_evaluation(company_name, full_site_text)
-    reason_task = get_reason_to_be_impressed(company_name, full_site_text)
+    evaluation_task = get_website_evaluation(full_site_text)
+    reason_task = get_reason_to_be_impressed(full_site_text)
     
     evaluation, reason_phrase = await asyncio.gather(evaluation_task, reason_task)
     
@@ -296,7 +319,7 @@ async def process_row(session: aiohttp.ClientSession, row_data: tuple) -> dict |
         'error_reason': error_reason
     }
 
-async def process_file(file_path: str, name_col: str, web_col: str, api_key: str) -> dict:
+async def process_file(file_path: str, web_col: str, api_key: str) -> dict:
     """
     Main controller function to manage the entire file processing workflow.
 
@@ -306,7 +329,6 @@ async def process_file(file_path: str, name_col: str, web_col: str, api_key: str
 
     Args:
         file_path: The full path to the Excel file to be processed.
-        name_col: The column name for the company's name.
         web_col: The column name for the company's website URL.
         api_key: The Gemini API key for authentication.
 
@@ -335,7 +357,7 @@ async def process_file(file_path: str, name_col: str, web_col: str, api_key: str
     total_rows = len(df)
     async with aiohttp.ClientSession() as session:
         for index, row in df.iterrows():
-            row_data = (index, row, name_col, web_col, total_rows)
+            row_data = (index, row, web_col, total_rows)
             tasks.append(process_row(session, row_data))
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -491,16 +513,15 @@ def main():
     print(f"Processing file: {file_path}")
 
     # Load column names from config, with sensible defaults
-    company_name_column = config.get("company_name_column", "Business Name")
     website_column = config.get("website_column", "Web Address")
-    print(f"Using columns: Name='{company_name_column}', Website='{website_column}'")
+    print(f"Using column for website URLs: '{website_column}'")
 
     # Set the event loop policy for Windows to avoid common asyncio errors with aiohttp
     if os.name == 'nt':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     # Run the main asynchronous processing function
-    stats = asyncio.run(process_file(file_path, company_name_column, website_column, api_key))
+    stats = asyncio.run(process_file(file_path, website_column, api_key))
 
     # Calculate and display execution time and write the final log file
     duration = time.time() - start_time

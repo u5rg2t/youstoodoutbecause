@@ -1,7 +1,6 @@
 {
-  "company_name_column": "Business Name",
   "website_column": "Web Address",
-  "default_error_reason": "because of breadth of services you offer and the amount of time you've been trading",
+  "default_error_reason": "because of the breadth of services offered and the company's trading history.",
   "max_pages_to_crawl": 15,
-  "sentence": "Your company stood out to me {{ generated_text }}."
+  "sentence": "This website stood out to me {{ generated_text }}"
 }

@@ -7,8 +7,14 @@ The entire process is asynchronous, allowing it to process multiple websites con
 ## How It Works
 
 1.  **File Detection**: The script automatically finds the target Excel file (`.xls` or `.xlsx`) inside the `xls` directory.
-2.  **Configuration**: It reads settings from `config.json` to determine which columns to use for the company name and website, how many pages to crawl, and what default messages to use.
-3.  **Crawling**: For each company, the script crawls up to a specified number of pages on their website, extracting clean text content.
+2.  **Configuration**: It reads settings from `config.json` to determine which column contains the website URLs, how many pages to crawl, and what default messages to use.
+3.  **URL Validation**: Before processing, each URL is validated to ensure it is well-formed. Rows with invalid URLs are skipped.
+4.  **Crawling**: For each valid URL, the script crawls up to a specified number of pages on the website, extracting clean text content.
+5.  **AI Analysis**: The extracted text is sent to the Gemini AI for two concurrent tasks:
+    *   **Website Evaluation**: Scores the website on clarity, professionalism, and credibility.
+    *   **Reason Generation**: Generates a concise, professional, and context-aware phrase that completes the outreach sentence defined in the config.
+6.  **Update Excel**: The original Excel file is updated in place with new columns containing the AI's evaluation scores, a status (`OK` or `Error`), and the generated outreach phrase.
+7.  **Logging**: A detailed summary of the entire run is saved to a timestamped log file in the `logs` directory, including statistics on successes, errors, and total pages scanned.
 4.  **AI Analysis**: The extracted text is sent to the Gemini AI for two concurrent tasks:
     *   **Website Evaluation**: Scores the website on clarity, professionalism, and credibility.
     *   **Reason Generation**: Generates a concise, professional, and context-aware phrase that completes the outreach sentence defined in the config.
@@ -72,16 +78,15 @@ This file controls the script's behavior. You can modify it to suit your needs.
 
 ```json
 {
-  "company_name_column": "Business Name",
   "website_column": "Web Address",
-  "default_error_reason": "because I was unable to analyze the website content.",
+  "default_error_reason": "because of the breadth of services offered and the company's trading history.",
   "max_pages_to_crawl": 15,
-  "sentence": "Your company stood out to me {{ generated_text }}"
+  "sentence": "This website stood out to me {{ generated_text }}"
 }
 ```
 
-*   `company_name_column`: The exact name of the column in your Excel file that contains the company names.
-*   `website_column`: The exact name of the column for the website URLs.
+*   `website_column`: The exact name of the column in your Excel file for the website URLs.
+*   `default_error_reason`: A fallback message to use if the AI fails to generate a reason.
 *   `max_pages_to_crawl`: The maximum number of pages the script will crawl on each website.
 *   `sentence`: The template for your outreach message. The script will generate text to replace the `{{ generated_text }}` token.
 
